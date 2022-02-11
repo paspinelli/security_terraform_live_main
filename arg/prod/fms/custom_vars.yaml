@@ -1,0 +1,41 @@
+ip_set_name: "FMS-Blacklist-IP-Set"
+ip_set_description: "List of IPs to block."
+ip_set_adress_version: "IPV4"
+ip_set_scope: "REGIONAL"
+
+ip_set_adresses:
+  - "xxxxxx"
+
+rulegroup_name: "FMS-basic-regional-rulegroup"
+rulegroup_scope: "REGIONAL"
+rulegroup_capacity: 2
+rulegroup_cloudwatch_metrics_enabled: true
+rulegroup_metric_name: "FMS-basic-regional-rulegroup-metric"
+rulegroup_sampled_requests_enabled: true
+
+geo_rule_name: "FMS-count-country"
+geo_rule_priority: 0
+geo_rule_country_codes:
+  - "xx"
+  - "xx"
+  - "xx"
+geo_rule_cloudwatch_metrics_enabled: true
+geo_rule_metric_name: "FMS-count-country-metric"
+geo_rule_sampled_requests_enabled: true
+
+ip_rule_name: "FMS-block-custom-IPs"
+ip_rule_priority: 1
+ip_rule_cloudwatch_metrics_enabled: true
+ip_rule_metric_name: "FMS-block-custom-IPs-metric"
+ip_rule_sampled_requests_enabled: true
+
+fms_policy_name: "FMS-basic-regional-policy"
+fms_policy_exclude_resource_tags: false
+fms_policy_remediation_enabled: true
+fms_policy_resource_type_list:
+  - "AWS::ElasticLoadBalancingV2::LoadBalancer"
+  - "AWS::ApiGateway::Stage"
+fms_policy_include_accounts:
+  - "xxxxxxxxxxxx"
+
+fms_policy_tag_value: "basic-regional"

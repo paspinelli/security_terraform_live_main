@@ -1,0 +1,60 @@
+name: 'Comment_Dispatch'
+on:
+  issue_comment:
+    types: [created]
+
+env:
+  XXX_GITHUB_TOKEN: ${{ secrets.XXXX_GLOBAL_GITHUB_TOKEN }}
+
+jobs:
+  issuecomment:
+    if: ${{ github.event_name == 'issue_comment'}}
+    name: 'Issue Comment'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Dispatch
+        uses: actions/github-script@v3.1.0
+        with:
+            github-token: ${{ env.XXXX_GITHUB_TOKEN }}
+            script: |
+              const event  = require(process.env.GITHUB_EVENT_PATH);
+              const commentBody = event.comment.body;
+              const commentId  = event.comment.id;
+              const firstLine = commentBody.split(/\r?\n/)[0].trim()
+              if (firstLine.length < 2 || firstLine.charAt(0) != '/') {
+                console.debug(
+                  'The first line of the comment is not a valid slash command.'
+                )
+                return
+              }
+              const isPullRequest = 'pull_request' in event.issue
+              if (isPullRequest){
+                  const {data: pullRequest} = await github.pulls.get({
+                    ...context.repo,
+                    pull_number: event.issue.number
+                  })
+                  const inputs = {
+                    body: event.comment.body,
+                    pr_number: String(event.issue.number),
+                    sha: pullRequest.head.sha,
+                    ref: pullRequest.head.ref
+                  }
+                  
+                  const res = await github.request(
+                    'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches',
+                    {
+                      ...context.repo,
+                      workflow_id: "deployment.yml",
+                      ref: pullRequest.head.ref,
+                      inputs: inputs
+                    }
+                  )
+                  await github.reactions.createForIssueComment({
+                    ...context.repo,
+                    comment_id: event.comment.id,
+                    content: "rocket"
+                  })
+                  console.log(res)
+                  console.log(event)
+              }

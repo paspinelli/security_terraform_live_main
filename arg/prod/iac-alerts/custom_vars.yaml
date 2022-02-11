@@ -1,0 +1,11 @@
+bucket_name: "xxxx-iac-alerts"
+bucket_acl: "private"
+versioning_enable: true
+lambda_name: "iac-results-to-slack"
+lambda_description: "Send IAC scan results to slack channel"
+lambda_handler: "lambda_handler.lambda_handler"
+source_path: "../../../../../../src/iac-alerts/"
+lambda_policies:
+  - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+  - "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
+lambda_number_of_policies: 2

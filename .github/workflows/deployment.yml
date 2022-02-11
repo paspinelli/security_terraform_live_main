@@ -1,0 +1,170 @@
+name: 'Deploy'
+on:
+  pull_request:
+    paths:
+      - 'arg/**'
+      - 'col/**'
+  workflow_dispatch:
+    inputs:
+      body:
+        required: true
+      pr_number:
+        required: true
+      ref:
+        required: true
+      sha:
+        required: true
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID_LOW: ${{ secrets.aws_access_key_id_low }}
+  AWS_SECRET_ACCESS_KEY_LOW: ${{ secrets.aws_secret_access_key_low }}
+  AWS_ACCESS_KEY_ID_PROD: ${{ secrets.aws_access_key_id }}
+  AWS_SECRET_ACCESS_KEY_PROD: ${{ secrets.aws_secret_access_key }}
+  AWS_PROFILE: "xxxx-operaciones"
+  TERRAFORM_VERSION: 0.14.2
+  TERRAGRUNT_VERSION: 0.25.5
+  TERRAGRUNT_ACTION_VERSION: "v3.1.0"
+  UALA_GITHUB_TOKEN: ${{ secrets.XXX_GLOBAL_GITHUB_TOKEN }}
+  UALA_SSH_KEY: ${{ secrets.XXX_GLOBAL_SSH_KEY }}
+  AWS_SDK_LOAD_CONFIG: 1
+  TF_IN_AUTOMATION: "true"
+  ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+  TF_LOG: ""
+  COUNTRIES: '["arg","col"]'
+  ENVIRONMENTS: '["dev","test","stage","prod"]'
+
+jobs:
+  comment:
+    name: "Comment Event"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: "Checkout Terragrunt PR Automation"
+        uses: actions/checkout@v2
+        with:
+          path: terragrunt-action
+          repository: Bancar/uala-terragrunt-pr-action
+          ref: ${{ env.TERRAGRUNT_ACTION_VERSION }}
+          token: ${{ env.UALA_GITHUB_TOKEN }}
+
+      - name: "Comment PR Event"
+        uses: ./terragrunt-action
+        with:
+          comment: "true"
+          github-token: ${{ secrets.UALA_GLOBAL_GITHUB_TOKEN }}
+
+      - name: Check changes
+        uses: actions/github-script@v3.1.0
+        id: set-matrix
+        with:
+          github-token: ${{ secrets.UALA_GLOBAL_GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const event  = require(process.env.GITHUB_EVENT_PATH);
+            let serviceChanged = {"include":[]}
+            environments = ${{ env.ENVIRONMENTS }}
+            countries   = ${{ env.COUNTRIES }}
+            if(context.eventName == "workflow_dispatch"){
+                const commentBody = event.inputs.body
+                const firstLine = commentBody.split(/\r?\n/)[0].trim()
+                let matches;
+                const output = [];
+                const TOKENISE_REGEX = /\S+="[^"\\]*(?:\\.[^"\\]*)*"|"[^"\\]*(?:\\.[^"\\]*)*"|\S+/g
+                while ((matches = TOKENISE_REGEX.exec(firstLine.slice(1)))) {
+                  output.push(matches[0])
+                }
+                result = [{
+                  filename: output[2]
+                }]
+              }
+            if(context.eventName == "pull_request"){
+                const pr_number = event.pull_request.number;
+                const files = await github.pulls.listFiles({
+                  ...context.owner,
+                  ...context.repo,
+                  pull_number: pr_number,
+                  per_page: 100
+                })
+                result = files.data;
+            }
+            if(countries.length > 0){
+                for (let i = 0; i < environments.length; i++) {
+                  for (let j = 0; j < countries.length; j++) {
+                    if (result.filter(f => f.filename.startsWith(countries[j]+"/"+environments[i])).length > 0){
+                      serviceChanged.include.push({"env":countries[j]+"/"+environments[i]});
+                    }
+                  }
+                }
+                serviceChanged=JSON.stringify(serviceChanged);
+                console.log(serviceChanged);
+                core.setOutput('matrix', serviceChanged);
+            }else{
+                for (let i = 0; i < environments.length; i++) {
+                  if (result.filter(f => f.filename.startsWith(environments[i])).length > 0){
+                    serviceChanged.include.push({"env":environments[i]});
+                  }
+                }
+                serviceChanged=JSON.stringify(serviceChanged);
+                console.log(serviceChanged);
+                core.setOutput('matrix', serviceChanged);
+            }
+  Terragrunt:
+    needs: comment
+    name: "Running Terragrunt"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.comment.outputs.matrix)}}
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v2
+        with:
+          submodules: "true"
+          token: ${{ env.UALA_GITHUB_TOKEN }}
+
+      - name: "Checkout Terragrunt PR Automation"
+        uses: actions/checkout@v2
+        with:
+          path: terragrunt-action
+          repository: Bancar/uala-terragrunt-pr-action
+          ref: ${{ env.TERRAGRUNT_ACTION_VERSION }}
+          token: ${{ env.UALA_GITHUB_TOKEN }}
+
+      - name: "Set SSH Key"
+        uses: kielabokkie/ssh-key-and-known-hosts-action@v1
+        with:
+          ssh-private-key: ${{ env.UALA_SSH_KEY }}
+          ssh-host: github.com
+
+      - name: "Setup AWS Credentials Profile - Uala Arg Operaciones Prod"
+        run: |
+          mkdir ~/.aws/
+          touch ~/.aws/credentials
+          touch ~/.aws/config          
+          echo "[uala-operaciones]" >> ~/.aws/credentials
+          echo "aws_access_key_id=$AWS_ACCESS_KEY_ID_PROD" >> ~/.aws/credentials
+          echo "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY_PROD" >> ~/.aws/credentials
+          echo "[profile uala-operaciones]" >> ~/.aws/config
+          echo "region = us-east-1" >> ~/.aws/config
+          echo "output = json" >> ~/.aws/config
+      - name: "Installing Terragrunt"
+        uses: peter-murray/terragrunt-github-action@v1.0.0
+        with:
+          terragrunt_version: ${{ env.TERRAGRUNT_VERSION }}
+
+      - name: "Installing Terraform"
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_wrapper: false
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: "Running Terragrunt"
+        uses: ./terragrunt-action
+        with:
+          path-to-hcl: ${{ matrix.env }}
+          github-token: ${{ secrets.UALA_GLOBAL_GITHUB_TOKEN }}
+          bucket: "uala-terragrunt-pr-action"
+          profile: "uala-operaciones"

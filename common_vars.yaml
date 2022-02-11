@@ -1,0 +1,5 @@
+environment: "Production"
+owner: "Security"
+region: "us-east-1"
+assume_role: "arn:aws:iam::XXXXX:role/rolename"
+github_repo: "repositoryyyy"
